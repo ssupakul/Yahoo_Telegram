@@ -12,7 +12,7 @@ LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push"
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_USER_ID = os.getenv("LINE_USER_ID")
 
-WATCHLIST = ["BTC-USD", "ETH-USD", "BNB-USD", "NEAR-USD", "SOL-USD", "XRP-USD", "ADA-USD", "EIGEN-USD", "OP-USD", "NEAR-USD", "DOGE-USD", "FLOKI-USD"]
+WATCHLIST = ["BTC-USD", "ETH-USD", "BNB-USD", "NEAR-USD", "SOL-USD", "XRP-USD", "ADA-USD", "EIGEN-USD", "OP-USD", "SHIB-USD", "DOGE-USD", "FLOKI-USD"]
 
 def get_realtime_thb_rate():
     """ ดึงอัตราแลกเปลี่ยน USD/THB ปัจจุบันโดยตรงจาก Yahoo Finance """
@@ -173,7 +173,7 @@ def screen_crypto():
             signals.append(msg)
 
     if signals:
-        alert_header = "📊 [Binance TH Crypto Screener Report]"
+        alert_header = "📊 [Thai Crypto Screener Report]"
         full_message = alert_header + "".join(signals)
         send_line_messaging_api(full_message)
         print("Success! Notification sent to LINE.")
