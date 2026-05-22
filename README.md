@@ -1,2 +1,2 @@
-# BinanceTH_Report
-BinanceTH_Report
+# Thailand Crypto report
+Thai Crypto Report
