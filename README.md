@@ -1,2 +1,2 @@
-# Thailand Crypto report
+# Thai Crypto report
 Thai Crypto Report
