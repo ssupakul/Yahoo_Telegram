@@ -11,7 +11,7 @@ LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push"
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_USER_ID = os.getenv("LINE_USER_ID")
 
-WATCHLIST = ["BTC-USD", "ETH-USD", "BNB-USD", "SOL-USD", "XRP-USD", "EIGEN-USD", "DOGE-USD"]
+WATCHLIST = ["BTC-USD", "ETH-USD", "BNB-USD", "SOL-USD", "XRP-USD", "EIGEN-USD", "FLOKI-USD", "NEAR-USD", "OP-USD", "ADA-USD", "SHIB-USD", "DOGE-USD"]
 
 def send_line_messaging_api(text_msg):
     if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_USER_ID:
@@ -180,7 +180,7 @@ def screen_crypto():
             signals.append(msg)
 
     if signals:
-        alert_header = "📊 [Crypto Screener Report - USD]"
+        alert_header = "📊 [Yahoo Finance Crypto Screener Report - USD]"
         full_message = alert_header + "".join(signals)
         send_line_messaging_api(full_message)
         print("Success! Notification sent to LINE.")
