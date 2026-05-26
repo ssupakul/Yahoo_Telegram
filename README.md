@@ -1,2 +1,2 @@
-# Yahoo Finance Crypto report
-Yahoo Finance Crypto report in USD
+# Yahoo to Telegram Crypto report
+Yahoo to Telegram Crypto report
