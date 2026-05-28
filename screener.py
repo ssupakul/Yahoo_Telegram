@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 # -------------------------------------------------------------------------
 # COIN TIERS
 # -------------------------------------------------------------------------
+# Tier 1 — Blue chip: BTC, ETH
+#   → TP สูงกว่า (momentum แข็ง, ถือยาวได้)
+# Tier 2 — Mid-cap: BNB, SOL, XRP, NEAR, OP, ADA
+#   → TP มาตรฐาน
+# Tier 3 — Small/Meme cap: EIGEN, FLOKI, SHIB, DOGE
+#   → TP สั้นกว่า (volatile สูง, เก็บกำไรเร็ว)
+# -------------------------------------------------------------------------
 COIN_TIERS: dict[str, int] = {
     "BTC-USD":   1, "ETH-USD":   1,
     "BNB-USD":   2, "SOL-USD":   2, "XRP-USD":  2,
@@ -26,6 +33,7 @@ COIN_TIERS: dict[str, int] = {
     "EIGEN-USD": 3, "FLOKI-USD": 3, "SHIB-USD": 3, "DOGE-USD": 3,
 }
 
+# TP/SL multiplier ตาม Tier (ATR × multiplier)
 TIER_CONFIG: dict[int, dict] = {
     1: {"atr_tp_multiplier": 3.0, "atr_sl_multiplier": 1.5, "label": "🏆 Tier 1 (Blue Chip)"},
     2: {"atr_tp_multiplier": 2.0, "atr_sl_multiplier": 1.5, "label": "🥈 Tier 2 (Mid-Cap)"},
@@ -36,26 +44,42 @@ TIER_CONFIG: dict[int, dict] = {
 # CONFIGURATION
 # -------------------------------------------------------------------------
 CONFIG = {
+    # --- RSI Thresholds ---
     "rsi_oversold":            35,
     "rsi_overbought":          65,
     "rsi_recovery_threshold":  45,
     "rsi_pullback_threshold":  55,
     "rsi_recovery_lookback":     5,
+
+    # --- Divergence ---
     "rsi_bull_div_max":        45,
     "rsi_bear_div_min":        55,
     "lookback_bars":           15,
     "lookback_skip_bars":       3,
+
+    # --- TP / SL (fallback ถ้าเหรียญไม่อยู่ใน COIN_TIERS) ---
     "atr_tp_multiplier":       2.0,
     "atr_sl_multiplier":       1.5,
-    "trend_ema_slope_bars":     5,
-    "trend_candle_streak":      3,
-    "recovery_quality_high":   70,
-    "recovery_quality_mid":    40,
+
+    # --- Trend Continuity ---
+    "trend_ema_slope_bars":     5,   # ดู slope ของ EMA200 ย้อนหลัง N bars
+    "trend_candle_streak":      3,   # candle ติดกันกี่แท่งถึงนับว่า "ต่อเนื่อง"
+
+    # --- RSI Recovery Quality ---
+    # คะแนน 0–100 (สูง = สัญญาณแข็ง)
+    "recovery_quality_high":   70,   # ≥ 70 = 🔥 Strong Recovery
+    "recovery_quality_mid":    40,   # ≥ 40 = ✅ Moderate Recovery
+
+    # --- Volume Filter ---
     "vol_filter_ratio":       0.5,
+
+    # --- Indicators ---
     "ema_short":               50,
     "ema_long":               200,
     "rsi_length":              14,
     "atr_length":              14,
+
+    # --- Data Fetching ---
     "interval":             "1h",
     "period":               "90d",
     "request_delay":         0.5,
@@ -76,6 +100,7 @@ WATCHLIST = [
 # PRICE FORMATTING
 # -------------------------------------------------------------------------
 def fmt_price(price: float) -> str:
+    """Format ราคาตามมูลค่า: ≥$1000 → 2dp, ≥$1 → 4dp, <$1 → 6dp+"""
     if price >= 1_000:
         return f"${price:,.2f}"
     elif price >= 1:
@@ -83,15 +108,14 @@ def fmt_price(price: float) -> str:
     elif price >= 0.001:
         return f"${price:,.6f}"
     else:
+        # เหรียญมูลค่าต่ำมาก เช่น SHIB → 8 ตำแหน่ง
         return f"${price:,.8f}"
 
 # -------------------------------------------------------------------------
-# TELEGRAM (FIXED: Added HTML escaping and Safe Chunking)
+# TELEGRAM UTILITIES
 # -------------------------------------------------------------------------
 def escape_html(text: str) -> str:
-    """ช่วยป้องกันไม่ให้เครื่องหมาย < และ > ทั่วไป ไปพังโครงสร้าง HTML ของ Telegram"""
-    # หลีกเลี่ยงการตัดโดนแท็กที่เราตั้งใจเขียนขึ้นมา (จะแปลงเฉพาะตัวสุ่มเสี่ยงที่อยู่นอกแท็กหลัก)
-    # ในสคริปต์นี้ ปัญหาหลักคือการใช้เครื่องหมายเปรียบเทียบใน text ดิบ
+    """หลีกเลี่ยงการใช้เครื่องหมายเปรียบเทียบใน text ดิบที่จะพัง HTML Parser ของ Telegram"""
     return text.replace("&", "&amp;").replace("< ", "&lt; ").replace(" >", " &gt;").replace("<=", "&lt;=").replace(">=", "&gt;=")
 
 def send_telegram_message(text_msg: str) -> None:
@@ -101,7 +125,7 @@ def send_telegram_message(text_msg: str) -> None:
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
-    # ปรับปรุงการแบ่งข้อความ: พยายามตัดตามบรรทัดเพื่อป้องกันแท็กขาดครึ่ง (Safe Chunking)
+    # Safe Line Chunking: แบ่งตามบรรทัดเพื่อไม่ให้แท็กเปิด-ปิด HTML ขาดกลาง
     MAX_LEN = 4000
     lines = text_msg.split("\n")
     chunks = []
@@ -129,10 +153,11 @@ def send_telegram_message(text_msg: str) -> None:
                 logger.info("Telegram message sent successfully.")
             else:
                 logger.warning(f"Telegram error {response.status_code}: {response.text}")
-                # Fallback: ถ้ายังพังอีก ให้ลองส่งแบบข้อความธรรมดา (Plain Text) เพื่อไม่ให้พลาดการแจ้งเตือน
+                # Fallback layer: ถ้าส่ง HTML ไม่ผ่าน ให้ล้างแท็กแล้วส่งแบบ Plain Text
                 if response.status_code == 400:
                     logger.info("Retrying to send as plain text...")
-                    payload["text"] = chunk.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "")
+                    plain_text = chunk.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "")
+                    payload["text"] = plain_text
                     payload.pop("parse_mode", None)
                     requests.post(url, json=payload, timeout=10)
         except Exception as e:
@@ -165,6 +190,7 @@ def get_historical_data_yf(symbol: str) -> pd.DataFrame | None:
 
         if attempt < CONFIG["max_retries"]:
             time.sleep(CONFIG["retry_delay"])
+
     return None
 
 # -------------------------------------------------------------------------
@@ -183,7 +209,7 @@ def has_valid_indicators(row: pd.Series, cols: list[str]) -> bool:
     return all(not pd.isna(row[col]) for col in cols)
 
 # -------------------------------------------------------------------------
-# TREND CONTINUITY ANALYSIS (FIXED: Replaced safe characters)
+# TREND CONTINUITY ANALYSIS
 # -------------------------------------------------------------------------
 def analyze_trend_continuity(df: pd.DataFrame) -> dict:
     ema_long_col  = f"EMA_{CONFIG['ema_long']}"
@@ -192,17 +218,18 @@ def analyze_trend_continuity(df: pd.DataFrame) -> dict:
     streak_target = CONFIG["trend_candle_streak"]
 
     result = {
-        "ema_slope":       "neutral",
-        "candle_streak":   0,
-        "ema_cross_zone":  "neutral",
+        "ema_slope":       "neutral",   # "rising" | "falling" | "neutral"
+        "candle_streak":   0,           # บวก = ขาขึ้นต่อเนื่อง, ลบ = ขาลง
+        "ema_cross_zone":  "neutral",   # "golden" | "death" | "neutral"
         "is_trending_up":  False,
         "is_trending_down": False,
-        "trend_strength":  "",
+        "trend_strength":  "",          # label สำหรับแสดงผล
     }
 
     if len(df) < slope_bars + 2:
         return result
 
+    # 1. EMA200 slope
     ema_now  = df[ema_long_col].iloc[-1]
     ema_prev = df[ema_long_col].iloc[-slope_bars]
     if pd.isna(ema_now) or pd.isna(ema_prev):
@@ -214,6 +241,7 @@ def analyze_trend_continuity(df: pd.DataFrame) -> dict:
     elif slope_pct < -0.1:
         result["ema_slope"] = "falling"
 
+    # 2. Candle streak (close vs open)
     streak = 0
     for i in range(1, streak_target + 3):
         idx = -i
@@ -234,6 +262,7 @@ def analyze_trend_continuity(df: pd.DataFrame) -> dict:
             break
     result["candle_streak"] = streak
 
+    # 3. EMA cross zone
     ema50_now = df[ema_short_col].iloc[-1]
     if not pd.isna(ema50_now):
         if ema50_now > ema_now:
@@ -241,6 +270,7 @@ def analyze_trend_continuity(df: pd.DataFrame) -> dict:
         elif ema50_now < ema_now:
             result["ema_cross_zone"] = "death"
 
+    # ─── สรุปแนวโน้ม ───────────────────────────────────────────────────
     up_score   = 0
     down_score = 0
 
@@ -254,6 +284,7 @@ def analyze_trend_continuity(df: pd.DataFrame) -> dict:
     result["is_trending_up"]   = up_score   >= 3
     result["is_trending_down"] = down_score >= 3
 
+    # สร้าง label
     parts = []
     if result["ema_slope"] == "rising":
         parts.append(f"📈 EMA200 เอียงขึ้น (+{slope_pct:.2f}%)")
@@ -267,7 +298,6 @@ def analyze_trend_continuity(df: pd.DataFrame) -> dict:
     elif result["candle_streak"] <= -streak_target:
         parts.append(f"🕯️ Red candle ต่อเนื่อง {abs(streak)} แท่ง")
 
-    # ปรับตรงนี้: เปลี่ยนเครื่องหมาย > และ < เป็นข้อความภาษาอังกฤษ/ไทย หรือ Escape เพื่อความปลอดภัย
     if result["ema_cross_zone"] == "golden":
         parts.append("✨ EMA50 อยู่เหนือ EMA200 (Golden zone)")
     elif result["ema_cross_zone"] == "death":
@@ -285,6 +315,7 @@ def analyze_trend_continuity(df: pd.DataFrame) -> dict:
 # RSI RECOVERY QUALITY SCORE
 # -------------------------------------------------------------------------
 def score_rsi_recovery(df: pd.DataFrame) -> int:
+    """คืนค่าคะแนน 0–100 ของ RSI Recovery"""
     lookback = CONFIG["rsi_recovery_lookback"]
     if len(df) < lookback + 2:
         return 0
@@ -297,14 +328,21 @@ def score_rsi_recovery(df: pd.DataFrame) -> int:
     oversold_lvl = CONFIG["rsi_oversold"]
 
     score = 0
+
+    # ① Depth of oversold (0–35 pts)
     depth = max(0, oversold_lvl - recent_min)
     score += min(35, int(depth * 2.5))
+
+    # ② Recovery speed (0–30 pts)
     rise = last_rsi - recent_min
     score += min(30, int(rise * 2))
+
+    # ③ Distance from oversold (0–20 pts)
     dist = last_rsi - oversold_lvl
     if dist > 0:
         score += min(20, int(dist * 2))
 
+    # ④ Volume confirmation (0–15 pts)
     vol_now  = vol_series.iloc[-1]
     vol_prev = vol_series.iloc[-lookback:].mean()
     if not pd.isna(vol_prev) and vol_prev > 0:
@@ -315,9 +353,11 @@ def score_rsi_recovery(df: pd.DataFrame) -> int:
             score += 8
         elif vol_ratio >= 1.0:
             score += 3
+
     return min(100, score)
 
 def recovery_quality_label(score: int) -> str:
+    """แปลงคะแนน recovery เป็น label"""
     if score >= CONFIG["recovery_quality_high"]:
         return f"🔥 Strong Recovery (คะแนน {score}/100)"
     elif score >= CONFIG["recovery_quality_mid"]:
@@ -336,9 +376,10 @@ def _find_swing_low(lookback: pd.DataFrame) -> pd.Series | None:
     return lookback.iloc[lookback["close"].idxmin()]
 
 def _find_swing_high(lookback: pd.DataFrame) -> pd.Series | None:
+    """แกัไข Bug: ปรับเงื่อนไขตรรกะให้หาส่วนโค้งยอดดอย (Swing High) ที่ถูกต้อง"""
     closes = lookback["close"].values
     for i in range(1, len(closes) - 1):
-        if closes[i] > closes[i - 1] and closes[i] < closes[i + 1]:
+        if closes[i] > closes[i - 1] and closes[i] > closes[i + 1]:
             return lookback.iloc[i]
     return lookback.iloc[lookback["close"].idxmax()]
 
@@ -386,7 +427,7 @@ def detect_buy_mode(rsi_series: pd.Series) -> str | None:
         return "recovery"
     if last_rsi <= ov and prev_rsi > ov:
         return "crossunder"
-    if last_rsi <= ov and prev_rsi <= ov:
+    if last_rsi <= ov coach and prev_rsi <= ov:
         return "in_zone"
     return None
 
@@ -595,6 +636,7 @@ def screen_crypto() -> None:
         ema_long_val  = last[f"EMA_{CONFIG['ema_long']}"]
         tier_num, tier_cfg = _get_tier_cfg(symbol)
 
+        # Trend continuity analysis
         trend = analyze_trend_continuity(df)
 
         if last["close"] > ema_long_val:
@@ -603,6 +645,7 @@ def screen_crypto() -> None:
         else:
             coin_trend = "🔴 ขาลง"
 
+        # Tier badge for summary
         tier_badge = {1: "🏆", 2: "🥈", 3: "🎲"}.get(tier_num, "")
         trend_cont_label = ""
         if trend["is_trending_up"]:
@@ -620,9 +663,12 @@ def screen_crypto() -> None:
 
         rsi_series = df["RSI"]
 
+        # ตรวจสัญญาณซื้อ
         buy_mode = detect_buy_mode(rsi_series)
         if buy_mode:
             is_div = check_bullish_divergence(df)
+
+            # คำนวณ recovery score เฉพาะโหมด recovery
             rec_score = 0
             if buy_mode == "recovery":
                 rec_score = score_rsi_recovery(df)
@@ -640,6 +686,7 @@ def screen_crypto() -> None:
             )
             continue
 
+        # ตรวจสัญญาณขาย
         sell_mode = detect_sell_mode(rsi_series)
         if sell_mode:
             is_div = check_bearish_divergence(df)
@@ -654,6 +701,9 @@ def screen_crypto() -> None:
                 f"| Tier={tier_num} | TrendDown={trend['is_trending_down']}"
             )
 
+    # -------------------------------------------------------------------------
+    # ประกอบ Report
+    # -------------------------------------------------------------------------
     if total_coins == 0:
         logger.warning("No coins analyzed. Check WATCHLIST or network connection.")
         return
@@ -697,5 +747,8 @@ def screen_crypto() -> None:
         len(buy_signals), len(sell_signals),
     )
 
+# -------------------------------------------------------------------------
+# ENTRY POINT
+# -------------------------------------------------------------------------
 if __name__ == "__main__":
     screen_crypto()
