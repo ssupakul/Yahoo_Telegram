@@ -19,13 +19,6 @@ logger = logging.getLogger(__name__)
 # -------------------------------------------------------------------------
 # COIN TIERS
 # -------------------------------------------------------------------------
-# Tier 1 — Blue chip: BTC, ETH
-#   → TP สูงกว่า (momentum แข็ง, ถือยาวได้)
-# Tier 2 — Mid-cap: BNB, SOL, XRP, NEAR, OP, ADA
-#   → TP มาตรฐาน
-# Tier 3 — Small/Meme cap: EIGEN, FLOKI, SHIB, DOGE
-#   → TP สั้นกว่า (volatile สูง, เก็บกำไรเร็ว)
-# -------------------------------------------------------------------------
 COIN_TIERS: dict[str, int] = {
     "BTC-USD":   1, "ETH-USD":   1,
     "BNB-USD":   2, "SOL-USD":   2, "XRP-USD":  2,
@@ -66,7 +59,6 @@ CONFIG = {
     "trend_candle_streak":      3,   # candle ติดกันกี่แท่งถึงนับว่า "ต่อเนื่อง"
 
     # --- RSI Recovery Quality ---
-    # คะแนน 0–100 (สูง = สัญญาณแข็ง)
     "recovery_quality_high":   70,   # ≥ 70 = 🔥 Strong Recovery
     "recovery_quality_mid":    40,   # ≥ 40 = ✅ Moderate Recovery
 
@@ -100,7 +92,6 @@ WATCHLIST = [
 # PRICE FORMATTING
 # -------------------------------------------------------------------------
 def fmt_price(price: float) -> str:
-    """Format ราคาตามมูลค่า: ≥$1000 → 2dp, ≥$1 → 4dp, <$1 → 6dp+"""
     if price >= 1_000:
         return f"${price:,.2f}"
     elif price >= 1:
@@ -108,14 +99,12 @@ def fmt_price(price: float) -> str:
     elif price >= 0.001:
         return f"${price:,.6f}"
     else:
-        # เหรียญมูลค่าต่ำมาก เช่น SHIB → 8 ตำแหน่ง
         return f"${price:,.8f}"
 
 # -------------------------------------------------------------------------
 # TELEGRAM UTILITIES
 # -------------------------------------------------------------------------
 def escape_html(text: str) -> str:
-    """หลีกเลี่ยงการใช้เครื่องหมายเปรียบเทียบใน text ดิบที่จะพัง HTML Parser ของ Telegram"""
     return text.replace("&", "&amp;").replace("< ", "&lt; ").replace(" >", " &gt;").replace("<=", "&lt;=").replace(">=", "&gt;=")
 
 def send_telegram_message(text_msg: str) -> None:
@@ -125,7 +114,6 @@ def send_telegram_message(text_msg: str) -> None:
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
-    # Safe Line Chunking: แบ่งตามบรรทัดเพื่อไม่ให้แท็กเปิด-ปิด HTML ขาดกลาง
     MAX_LEN = 4000
     lines = text_msg.split("\n")
     chunks = []
@@ -153,7 +141,6 @@ def send_telegram_message(text_msg: str) -> None:
                 logger.info("Telegram message sent successfully.")
             else:
                 logger.warning(f"Telegram error {response.status_code}: {response.text}")
-                # Fallback layer: ถ้าส่ง HTML ไม่ผ่าน ให้ล้างแท็กแล้วส่งแบบ Plain Text
                 if response.status_code == 400:
                     logger.info("Retrying to send as plain text...")
                     plain_text = chunk.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "")
@@ -218,18 +205,17 @@ def analyze_trend_continuity(df: pd.DataFrame) -> dict:
     streak_target = CONFIG["trend_candle_streak"]
 
     result = {
-        "ema_slope":       "neutral",   # "rising" | "falling" | "neutral"
-        "candle_streak":   0,           # บวก = ขาขึ้นต่อเนื่อง, ลบ = ขาลง
-        "ema_cross_zone":  "neutral",   # "golden" | "death" | "neutral"
+        "ema_slope":       "neutral",   
+        "candle_streak":   0,           
+        "ema_cross_zone":  "neutral",   
         "is_trending_up":  False,
         "is_trending_down": False,
-        "trend_strength":  "",          # label สำหรับแสดงผล
+        "trend_strength":  "",          
     }
 
     if len(df) < slope_bars + 2:
         return result
 
-    # 1. EMA200 slope
     ema_now  = df[ema_long_col].iloc[-1]
     ema_prev = df[ema_long_col].iloc[-slope_bars]
     if pd.isna(ema_now) or pd.isna(ema_prev):
@@ -241,7 +227,6 @@ def analyze_trend_continuity(df: pd.DataFrame) -> dict:
     elif slope_pct < -0.1:
         result["ema_slope"] = "falling"
 
-    # 2. Candle streak (close vs open)
     streak = 0
     for i in range(1, streak_target + 3):
         idx = -i
@@ -262,7 +247,6 @@ def analyze_trend_continuity(df: pd.DataFrame) -> dict:
             break
     result["candle_streak"] = streak
 
-    # 3. EMA cross zone
     ema50_now = df[ema_short_col].iloc[-1]
     if not pd.isna(ema50_now):
         if ema50_now > ema_now:
@@ -270,7 +254,6 @@ def analyze_trend_continuity(df: pd.DataFrame) -> dict:
         elif ema50_now < ema_now:
             result["ema_cross_zone"] = "death"
 
-    # ─── สรุปแนวโน้ม ───────────────────────────────────────────────────
     up_score   = 0
     down_score = 0
 
@@ -284,7 +267,6 @@ def analyze_trend_continuity(df: pd.DataFrame) -> dict:
     result["is_trending_up"]   = up_score   >= 3
     result["is_trending_down"] = down_score >= 3
 
-    # สร้าง label
     parts = []
     if result["ema_slope"] == "rising":
         parts.append(f"📈 EMA200 เอียงขึ้น (+{slope_pct:.2f}%)")
@@ -315,7 +297,6 @@ def analyze_trend_continuity(df: pd.DataFrame) -> dict:
 # RSI RECOVERY QUALITY SCORE
 # -------------------------------------------------------------------------
 def score_rsi_recovery(df: pd.DataFrame) -> int:
-    """คืนค่าคะแนน 0–100 ของ RSI Recovery"""
     lookback = CONFIG["rsi_recovery_lookback"]
     if len(df) < lookback + 2:
         return 0
@@ -329,20 +310,16 @@ def score_rsi_recovery(df: pd.DataFrame) -> int:
 
     score = 0
 
-    # ① Depth of oversold (0–35 pts)
     depth = max(0, oversold_lvl - recent_min)
     score += min(35, int(depth * 2.5))
 
-    # ② Recovery speed (0–30 pts)
     rise = last_rsi - recent_min
     score += min(30, int(rise * 2))
 
-    # ③ Distance from oversold (0–20 pts)
     dist = last_rsi - oversold_lvl
     if dist > 0:
         score += min(20, int(dist * 2))
 
-    # ④ Volume confirmation (0–15 pts)
     vol_now  = vol_series.iloc[-1]
     vol_prev = vol_series.iloc[-lookback:].mean()
     if not pd.isna(vol_prev) and vol_prev > 0:
@@ -357,7 +334,6 @@ def score_rsi_recovery(df: pd.DataFrame) -> int:
     return min(100, score)
 
 def recovery_quality_label(score: int) -> str:
-    """แปลงคะแนน recovery เป็น label"""
     if score >= CONFIG["recovery_quality_high"]:
         return f"🔥 Strong Recovery (คะแนน {score}/100)"
     elif score >= CONFIG["recovery_quality_mid"]:
@@ -376,7 +352,6 @@ def _find_swing_low(lookback: pd.DataFrame) -> pd.Series | None:
     return lookback.iloc[lookback["close"].idxmin()]
 
 def _find_swing_high(lookback: pd.DataFrame) -> pd.Series | None:
-    """แกัไข Bug: ปรับเงื่อนไขตรรกะให้หาส่วนโค้งยอดดอย (Swing High) ที่ถูกต้อง"""
     closes = lookback["close"].values
     for i in range(1, len(closes) - 1):
         if closes[i] > closes[i - 1] and closes[i] > closes[i + 1]:
@@ -427,7 +402,7 @@ def detect_buy_mode(rsi_series: pd.Series) -> str | None:
         return "recovery"
     if last_rsi <= ov and prev_rsi > ov:
         return "crossunder"
-    if last_rsi <= ov coach and prev_rsi <= ov:
+    if last_rsi <= ov and prev_rsi <= ov:  # 🟢 แก้ไข: ลบคำว่า coach ที่หลุดพิมพ์ออกแล้ว
         return "in_zone"
     return None
 
@@ -636,7 +611,6 @@ def screen_crypto() -> None:
         ema_long_val  = last[f"EMA_{CONFIG['ema_long']}"]
         tier_num, tier_cfg = _get_tier_cfg(symbol)
 
-        # Trend continuity analysis
         trend = analyze_trend_continuity(df)
 
         if last["close"] > ema_long_val:
@@ -645,7 +619,6 @@ def screen_crypto() -> None:
         else:
             coin_trend = "🔴 ขาลง"
 
-        # Tier badge for summary
         tier_badge = {1: "🏆", 2: "🥈", 3: "🎲"}.get(tier_num, "")
         trend_cont_label = ""
         if trend["is_trending_up"]:
@@ -668,7 +641,6 @@ def screen_crypto() -> None:
         if buy_mode:
             is_div = check_bullish_divergence(df)
 
-            # คำนวณ recovery score เฉพาะโหมด recovery
             rec_score = 0
             if buy_mode == "recovery":
                 rec_score = score_rsi_recovery(df)
@@ -701,9 +673,6 @@ def screen_crypto() -> None:
                 f"| Tier={tier_num} | TrendDown={trend['is_trending_down']}"
             )
 
-    # -------------------------------------------------------------------------
-    # ประกอบ Report
-    # -------------------------------------------------------------------------
     if total_coins == 0:
         logger.warning("No coins analyzed. Check WATCHLIST or network connection.")
         return
