@@ -171,47 +171,54 @@ def get_histoday_data(coin: str) -> pd.DataFrame | None:
         return None
 
 def get_historical_data(coin: str) -> pd.DataFrame | None:
-    """ดึงข้อมูล 1H จาก Yahoo Finance (ย้อนหลังได้ 730 วัน) นำมา Resample เป็น 4H"""
+    """ดึงข้อมูล 1H จาก Yahoo Finance นำมา Resample เป็น 4H (พร้อมระบบ Fallback ป้องกันปัญหาข้อมูลไม่ครบใน Altcoins)"""
     ticker = f"{coin}-USD"
-    try:
-        df = yf.download(ticker, period="730d", interval="1h", progress=False)
-        
-        if df.empty:
-            logger.warning(f"{coin} 4H: ไม่พบข้อมูลจาก Yahoo Finance")
-            return None
+    
+    # สุ่มวนลูปช่วงเวลาจากกว้างไปแคบ เพื่อหลีกเลี่ยง Bug 'possibly delisted' ใน Yahoo สำหรับเหรียญใหม่ๆ หรือ Altcoins
+    for period in ["730d", "360d", "120d", "60d"]:
+        try:
+            df = yf.download(ticker, period=period, interval="1h", progress=False)
             
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.droplevel(1)
+            if df.empty:
+                continue
+                
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.droplevel(1)
+                
+            df.reset_index(inplace=True)
             
-        df.reset_index(inplace=True)
-        
-        df.rename(columns={
-            'Datetime': 'time', 
-            'Open': 'open', 
-            'High': 'high', 
-            'Low': 'low', 
-            'Close': 'close', 
-            'Volume': 'volumeto'
-        }, inplace=True)
-        
-        df['time'] = pd.to_datetime(df['time']).dt.tz_localize(None)
-        df.set_index("time", inplace=True)
+            df.rename(columns={
+                'Datetime': 'time', 
+                'Open': 'open', 
+                'High': 'high', 
+                'Low': 'low', 
+                'Close': 'close', 
+                'Volume': 'volumeto'
+            }, inplace=True)
+            
+            df['time'] = pd.to_datetime(df['time']).dt.tz_localize(None)
+            df.set_index("time", inplace=True)
 
-        df_4h = df.resample("4h").agg(
-            {
-                "open": "first",
-                "high": "max",
-                "low": "min",
-                "close": "last",
-                "volumeto": "sum",
-            }
-        ).dropna()
-        
-        return df_4h
-        
-    except Exception as e:
-        logger.warning(f"{coin} 4H (YF Error): {e}")
-        return None
+            df_4h = df.resample("4h").agg(
+                {
+                    "open": "first",
+                    "high": "max",
+                    "low": "min",
+                    "close": "last",
+                    "volumeto": "sum",
+                }
+            ).dropna()
+            
+            # บังคับว่าข้อมูลต้องมีอย่างน้อย 200 แท่ง เพื่อให้คำนวณ EMA 200 ได้เสถียร
+            if len(df_4h) >= 200:
+                logger.info(f"{coin} 4H: ดึงข้อมูลสำเร็จโดยใช้ย้อนหลัง period='{period}' ({len(df_4h)} แท่ง)")
+                return df_4h
+                
+        except Exception:
+            continue
+            
+    logger.warning(f"{coin} 4H: ไม่พบข้อมูลที่เพียงพอบน Yahoo Finance หลังจากลองแก้ไขทุกกรอบเวลาแล้ว")
+    return None
 
 # ==========================================
 # Context Analysis Sub-functions
@@ -327,7 +334,7 @@ def analyze_monthly_targets(df_1d: pd.DataFrame) -> dict:
             status_text = "🔮 <b>ภาพ 1M (Bullish):</b> ทิศทางหลักเป็นขาขึ้น มีเป้าหมายราคาวิ่งทดสอบกรอบบน"
         else:
             target_up, target_down, trend_status = pivot, min(s1, m_low), "bearish"
-            status_text = "🔮 <b>ภาพ 1M (Bearish):</b> ทิศทางหลักเป็นขาลง/พักฐาน มีแนวโน้มไหลลงหาแนวรับกรอบล่าง"
+            status_text = "🔮 <b>ภาพ 1M (Bearish):</b> ทิศทางหลักเป็นขาลง/พักฐานแรง มีแนวโน้มไหลลงหาแนวรับกรอบล่าง"
 
         result.update({"m_resistance_target": target_up, "m_support_target": target_down, "monthly_summary_label": status_text, "monthly_trend": trend_status})
     except Exception:
