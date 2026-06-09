@@ -30,7 +30,7 @@ RISK_PER_TRADE_PCT = 2.0
 
 COINS = [
     "BTC", "ETH", "BNB", "SOL", "XRP",
-    "ADA", "FLOKI", "SHIB", "OP", "DOGE", "NEAR",
+    "ADA", "FLOKI", "SHIB", "EIGEN", "OP", "DOGE", "NEAR",
     "TRX", "AVAX", "SUI"
 ]
 
@@ -85,7 +85,7 @@ COIN_TIER = {
     "BNB": "mid",   "SOL": "mid",   "XRP": "mid",
     "ADA": "mid",   "NEAR": "mid",  "OP": "mid",
     "TRX": "mid",   "AVAX": "mid",
-    "FLOKI": "small","SHIB": "small","DOGE": "small",
+    "FLOKI": "small", "SHIB": "small", "EIGEN": "small", "DOGE": "small",
     "SUI": "small"
 }
 
